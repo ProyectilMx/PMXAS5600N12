@@ -5,9 +5,9 @@ Modulo de Medicion Angular Absoluta Magnetica, programable mediante comandos UAR
 
 Esta provisto de un sensor de la marca AMS, el AS5600, que es un sensor
 magnetico rotatorio de posicion con una resolucion de 12 bits, para un
-rango por hardware de 4095°, el programa provee de otros 4095° para un
-rango maximo total de -4095 a 4095°. Por defecto, el sitema viene en un
-rango de 0 a 360°.
+rango por hardware de 4095Â°, el programa provee de otros 4095Â° para un
+rango maximo total de -4095 a 4095Â°. Por defecto, el sitema viene en un
+rango de 0 a 360Â°.
 
 La placa contiene un microcontrolador maestro, basado en un ATSAMD21E18
 de 32 bits, para realizar todas las mediciones y calculos a una velocidad 
@@ -19,10 +19,10 @@ diversas:
 PA27 - PA18:
 Salidas programables en rangos angulares, programables en nivel alto o
 bajo dentro de los mismos. Por defecto vienen con los siguientes limites:
-PA27 -> de 0° a 90°
-PA22 -> de 90° a 180°
-PA19 -> de 180° a 270°
-PA18 -> de 270° a 360°.
+PA27 -> de 0Â° a 90Â°
+PA22 -> de 90Â° a 180Â°
+PA19 -> de 180Â° a 270Â°
+PA18 -> de 270Â° a 360Â°.
 Con estas salidas se puede emular un registro de corrimiento de 4 bits o
 activar subsistemas dentro de cierto angulo.
 
@@ -32,11 +32,11 @@ PA14 -> genera un pulso en el sentido de las manecillas del reloj.
 PA09 -> genera un pulso en el sentido contrario a las manecillas del reloj.
 
 PA05:
-Genera una señal PWM con una frecuencia variable entre 1 KHz y 4MHz, con un
+Genera una seÃ±al PWM con una frecuencia variable entre 1 KHz y 4MHz, con un
 ciclo de trabajo configurable entre 0 - 100%, dependiendo de la posicion angular.
 
 PA02:
-Genera una señal analogica de 10 bits, de entre 0 y 3.3v aproximadamente, 
+Genera una seÃ±al analogica de 10 bits, de entre 0 y 3.3v aproximadamente, 
 dependiendo de la posicion angular.
 
 PA07, PA06, PA04, PA03, PA01, PA00.
@@ -154,3 +154,11 @@ Lista de comandos save:
 save.baud                -> Guarda el valor de la velocidad de la comunicacion Serial
                             cuando se ocupa set.baud.value, solamente se actualiza baud.
                             Al utilizar save, la siguiente vez que se energice, permanecera
+                            cuando se ocupa set.baud.value, solamente se actualiza baud.
+save.turn                -> Guarda el valor del numero de vueltas
+
+--------------------------------------------------------------------------------------------------
+Comandos directos:
+stop                     -> Detiene el modo fluido y deja de enviar caracteres
+info                     -> Imprime este menu
+reset                    -> Regresa la configuracion al estado de fabrica (115200 baudios)

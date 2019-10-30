@@ -51,7 +51,7 @@ Las funciones de la placa que se encuentran disponibles para el usuraio son:
 void pmxas5600n12_configure(void);    - Configura todos los perifericos de la placa
 void pmxas5600n12_exe(void);          - Ejecuta todas las acciones de control pertinentes a la placa
 
-#Instrucciones
+# Instrucciones
 
 Hay 3 comandos principales:
 set  - Escribe en la memoria de la tarjeta un nuevo valor

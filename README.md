@@ -51,22 +51,20 @@ Las funciones de la placa que se encuentran disponibles para el usuraio son:
 void pmxas5600n12_configure(void);    - Configura todos los perifericos de la placa
 void pmxas5600n12_exe(void);          - Ejecuta todas las acciones de control pertinentes a la placa
 
- ---------------
-| Instrucciones |
- ---------------
---------------------------------------------------------------------------------------------------
+Instrucciones
+
 Hay 3 comandos principales:
 set  - Escribe en la memoria de la tarjeta un nuevo valor
 get  - Lee desde la memoria de la tarjeta un valor existente
 save - salva un valor en memoria
 Para que se considere un comando valido, debe terminar con nueva linea (\n)
---------------------------------------------------------------------------------------------------
+
 Comandos GET Para lectura de valores:
 get.registro
 get.registro.subregistro
 donde: 'registro'    es la variable a leer.
        'subregistro' puede ser un subregistro de registro.
---------------------------------------------------------------------------------------------------
+       
 Comandos SET para cambiar la configuracion:
 set.registro
 set.registro.valor
@@ -75,13 +73,13 @@ donde: 'registro'    es la variable a configurar.
        'subregistro' puede ser un subregistro de registro.
        'valor'       es el valor que se escribira en ese registro.
                        y puede tomar valores positivos y negativos o tener pseudonimos.
---------------------------------------------------------------------------------------------------
+                       
 Ejemplo de comandos set:
 set.angle.min.-180\n -> configura el angulo minimo en -180
 set.angle.max.180\n  -> configura el angulo maximo en 180
 set.turn.10\n        -> reinicia el contador de vueltas a 10
 set.pa27.max.100\n  -> configura el angulo maximo de PA27 en 100
---------------------------------------------------------------------------------------------------
+
 Lista de comandos get:
 get.version     -> devuelve la version del firmware
 get.angle       -> devuelve el valor del angulo actual.
@@ -99,7 +97,7 @@ get.pa18.min    -> devuelve el valor del angulo minimo para la salida PA27.
 get.pa18.max    -> devuelve el valor del angulo maximo para la salida PA27.
 get.dir         -> devuelve la direccion de incremento al girar el dial (CW o CCW)
 get.baud        -> devuelve la velocidad de comunicacion en baudios.
---------------------------------------------------------------------------------------------------
+
 Lista de comandos set:
 set.ack.none             -> Configura tipo de acknowledge a ninguno
 set.ack.ok               -> Configura tipo de acknowledge a ok
@@ -152,7 +150,7 @@ set.pixel.enable         -> Habilita los neopixels
 set.pixel.disable        -> Desahibita los neopixels
 set.pixel.color.value    -> Cambia el color de los neopixels, value puede ser:
                             red, green, blue, yellow, magenta, cyan, white
---------------------------------------------------------------------------------------------------
+                            
 Lista de comandos save:
 save.baud                -> Guarda el valor de la velocidad de la comunicacion Serial
                             cuando se ocupa set.baud.value, solamente se actualiza baud.

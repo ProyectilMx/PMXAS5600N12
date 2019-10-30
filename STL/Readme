@@ -1,3 +1,9 @@
 Estos archivos son para imprimir en 3D un Knob compatible con la placa, el cual albergará un Imán de neodimio de 7mm de diámetro, por 3mm de espesor.
 
 Es importante que el imán quede con los campos magnéticos perpendiculades a la placa, puesto que si queda alineado con ella, al rotar el imán, en realidad los campos seguirían estando igualemente orientados.
+
+Knob-base.STL
+Esta es la base atornillable a la PCB, por medio de 2 tornillos M3x6mm. Cuenta con espacio para un balero 624ZZ en su interior, comunmente utilizados para armar impresoras 3D.
+
+Knob-giratorio.STL
+Esta pieza alberga el imán de neodimio y cuenta con la forma para motar una neumático de llanta tipo Pololu de 30mm de diámetro.

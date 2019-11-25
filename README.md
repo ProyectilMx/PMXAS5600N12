@@ -65,5 +65,5 @@ void pmxas5600n12_exe(void);          - Ejecuta todas las acciones de control pe
 
 Se pueden utilizar las siguiente variables en el programa principal para interactuar con la placa:
  
-user_turn       -  Reporta el numero de vueltas actual 
+user_turn       -  Reporta el numero de vueltas actual
 user_angle      -  Reporta el angulo actual en 12 bits (0 - 4095)

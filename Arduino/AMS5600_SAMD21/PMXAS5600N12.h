@@ -17,11 +17,17 @@ AMS_5600 ams;
 
 #define OSC_FREQ        48000000
 #define I2CSPEED        1000000
+
+#define USB             1
+#define SERIAL          0
+
+#define ONE_THIRD_FULL_ANGLE    1365
+#define TWO_THIRD_FULL_ANGLE    2730
 #define PIX_PORTION     342
 #define CCW             0
 #define CW              1
 #define NO_ACK          0
-#define OK_ACK          1
+#define MIN_ACK         1
 #define FULL_ACK        2
 #define CALL            0
 #define CHANGE          1
@@ -44,7 +50,10 @@ AMS_5600 ams;
 #define PA19MAX_ANGLE   13
 #define PA18MIN_ANGLE   14
 #define PA18MAX_ANGLE   15
-#define BAUD            16
+#define PA07MIN_TURN    16
+#define PA07MAX_TURN    17
+#define PA06MULTIPLE    18
+#define BAUD            19
 
 #define RED             1
 #define GREEN           2
@@ -57,13 +66,6 @@ AMS_5600 ams;
 #define SINGLE          1
 #define RISING          2
 #define FALLING         3
-#define SINGLETURN      0
-#define MULTITURN       1
-#define ENDLESS         0
-#define LIMITED         1
-
-#define SERIAL0         0
-#define SERIAL1         1
 
 FlashStorage(ADD_ack_level, int);
 FlashStorage(ADD_flag_angleFluid, short);
@@ -79,20 +81,29 @@ FlashStorage(ADD_angleUpdate, short);
 FlashStorage(ADD_turnContinue, short);
 FlashStorage(ADD_pa27_min_angle, int);
 FlashStorage(ADD_pa27_max_angle, int);
-FlashStorage(ADD_pa27_level, short);
 FlashStorage(ADD_pa27_enable, int);
+FlashStorage(ADD_pa27_logic, short);
 FlashStorage(ADD_pa22_min_angle, int);
 FlashStorage(ADD_pa22_max_angle, int);
-FlashStorage(ADD_pa22_level, short);
 FlashStorage(ADD_pa22_enable, int);
+FlashStorage(ADD_pa22_logic, short);
 FlashStorage(ADD_pa19_min_angle, int);
 FlashStorage(ADD_pa19_max_angle, int);
-FlashStorage(ADD_pa19_level, short);
 FlashStorage(ADD_pa19_enable, int);
+FlashStorage(ADD_pa19_logic, short);
 FlashStorage(ADD_pa18_min_angle, int);
 FlashStorage(ADD_pa18_max_angle, int);
-FlashStorage(ADD_pa18_level, short);
 FlashStorage(ADD_pa18_enable, int);
+FlashStorage(ADD_pa18_logic, short);
+FlashStorage(ADD_pa07_min_turn, int);
+FlashStorage(ADD_pa07_max_turn, int);
+FlashStorage(ADD_pa07_enable, int);
+FlashStorage(ADD_pa07_logic, short);
+FlashStorage(ADD_pa06_turn_mult, int);
+FlashStorage(ADD_pa06_enable, int);
+FlashStorage(ADD_pa06_logic, short);
+FlashStorage(ADD_pa06_pulse_duration, int);
+
 FlashStorage(ADD_baud, long);
 FlashStorage(ADD_ackDelay, unsigned int);
 FlashStorage(ADD_color_bright, unsigned int);
@@ -102,20 +113,27 @@ FlashStorage(ADD_pixel_effect, int);
 FlashStorage(ADD_turn_pulse_duration, int);
 
 // Variables globales
+bool input_channel;
 int max_angle = 360;
 int min_angle = 0;
+const long long min_turn = -2147483648;
+const long long max_turn = 2147483647;
 int full_angle = max_angle - min_angle;
 int ack_level = FULL_ACK;
 int raw_angle;
 int angle;
+int raw_new_angle;
 int new_angle;
+int user_angle;
+int user_turn;
+int raw_old_angle;
 int old_angle;
 int ackDelay = 1000;
 int requestValue = NULL;
 int color_bright = 50;
 int pixel_color = RED;
 int pixel_effect = SINGLE;
-int turn_pulse_duration = 1000;   // us
+int turn_pulse_duration = 1000;   // uS
 int pa27_min_angle = 0;
 int pa27_max_angle = 90;
 int pa22_min_angle = 90;
@@ -124,10 +142,14 @@ int pa19_min_angle = 180;
 int pa19_max_angle = 270;
 int pa18_min_angle = 270;
 int pa18_max_angle = 360;
+int pa07_min_turn = 0;
+int pa07_max_turn = 10;
+int pa06_pulse_duration = 100;    // uS
+long long pa06_turn_mult = 10;  // multiplo de vueltas para dar un pulso en PA06
 int updateMode = CALL;
 int ind[5] = {0,0,0,0,0}; // posiciones de los comandos
 
-long baud = 115200;
+long baud = 9600;
 long long turn = 0;
 long long new_turn;
 long long old_turn;
@@ -142,20 +164,30 @@ short flag_direction = CW;
 short flag_error_syntax = false;
 short flag_error_range = false;
 short flag_error_void = false;
-short flag_pa27_level = LOW;
-short flag_pa22_level = LOW;
-short flag_pa19_level = LOW;
-short flag_pa18_level = LOW;
+short flag_pa27_level = HIGH;
+short flag_pa22_level = HIGH;
+short flag_pa19_level = HIGH;
+short flag_pa18_level = HIGH;
+short flag_pa07_level = HIGH;
+short flag_pa06_level = HIGH;
 short pa27_enable = true;
+short pa27_logic = true;
 short pa22_enable = true;
+short pa22_logic = true;
 short pa19_enable = true;
+short pa19_logic = true;
 short pa18_enable = true;
+short pa18_logic = true;
+short pa07_enable = true;
+short pa07_logic = true;
+short pa06_enable = true;
+short pa06_logic = true;
 short pixel_enable = true;
-short flag_serialIncoming = SERIAL0;
 
-String firmwareVersion = "PMXAS5600P12 - Version 1.0 - 28/02/2019";
+
+String firmwareVersion = "PMXAS5600N12 - Version 1.0 - 28/02/2019";
 String readString; // string introducido por usuario
-String subCom[5] = {"","","","",""}; // String para cada subcomando
+String subCom[6] = {"","","","","",""}; // String para cada subcomando
 
 // Funcion que recupera los datos guardados en Flash
 void load_values() {
@@ -163,42 +195,57 @@ void load_values() {
   flag_angleFluid = ADD_flag_angleFluid.read();
   flag_turnFluid = ADD_flag_turnFluid.read();
   updateMode = ADD_updateMode.read();
-  min_angle = ADD_min_angle.read();            // angulo minimo
-  max_angle = ADD_max_angle.read();            // angulo maximo
-  turn = ADD_turn.read();                      // numero de vueltas
-  flag_direction = ADD_direction.read();       // sentido de giro incremental
-  pa27_min_angle = ADD_pa27_min_angle.read();  // angulo minimo para PA27
-  pa27_max_angle = ADD_pa27_max_angle.read();  // angulo maximo para PA27
-  pa27_enable = ADD_pa27_enable.read();        // habilitacion de PA27
-  pa22_min_angle = ADD_pa22_min_angle.read();  // angulo minimo para PA22
-  pa22_max_angle = ADD_pa22_max_angle.read();  // angulo maximo para PA22
-  pa22_enable = ADD_pa22_enable.read();        // habilitacion de PA22
-  pa19_min_angle = ADD_pa19_min_angle.read();  // angulo minimo para PA19
-  pa19_max_angle = ADD_pa19_max_angle.read();  // angulo maximo para PA19
-  pa19_enable = ADD_pa19_enable.read();        // habilitacion de PA19
-  pa18_min_angle = ADD_pa18_min_angle.read();  // angulo minimo para PA18
-  pa18_max_angle = ADD_pa18_max_angle.read();  // angulo maximo para PA18
-  pa18_enable = ADD_pa18_enable.read();        // habilitacion de PA18
-  color_bright = ADD_color_bright.read();      // color de los neopixels
-  pixel_color = ADD_pixel_color.read();
-  pixel_effect = ADD_pixel_effect.read();      // efecto de los neopixels
+  min_angle = ADD_min_angle.read();                       // angulo minimo
+  max_angle = ADD_max_angle.read();                       // angulo maximo
+  turn = ADD_turn.read();                                 // numero de vueltas
+  flag_direction = ADD_direction.read();                  // sentido de giro incremental
+  pa27_min_angle = ADD_pa27_min_angle.read();             // angulo minimo para PA27
+  pa27_max_angle = ADD_pa27_max_angle.read();             // angulo maximo para PA27
+  pa27_enable = ADD_pa27_enable.read();                   // habilitacion de PA27
+  pa27_logic = ADD_pa27_logic.read();                     // logica del pin PA27
+  pa22_min_angle = ADD_pa22_min_angle.read();             // angulo minimo para PA22
+  pa22_max_angle = ADD_pa22_max_angle.read();             // angulo maximo para PA22
+  pa22_enable = ADD_pa22_enable.read();                   // habilitacion de PA22
+  pa22_logic = ADD_pa22_logic.read();                     // logica del pin PA22
+  pa19_min_angle = ADD_pa19_min_angle.read();             // angulo minimo para PA19
+  pa19_max_angle = ADD_pa19_max_angle.read();             // angulo maximo para PA19
+  pa19_enable = ADD_pa19_enable.read();                   // habilitacion de PA19
+  pa19_logic = ADD_pa19_logic.read();                     // logica del pin PA19
+  pa18_min_angle = ADD_pa18_min_angle.read();             // angulo minimo para PA18
+  pa18_max_angle = ADD_pa18_max_angle.read();             // angulo maximo para PA18
+  pa18_enable = ADD_pa18_enable.read();                   // habilitacion de PA18
+  pa18_logic = ADD_pa18_logic.read();                     // logica del pin PA18
+  pa07_min_turn = ADD_pa07_min_turn.read();               // vueltas minimas para PA07
+  pa07_max_turn = ADD_pa07_max_turn.read();               // vueltas maximas para PA07
+  pa07_enable = ADD_pa07_enable.read();                   // habilitacion de PA07
+  pa07_logic = ADD_pa07_logic.read();                     // logica del pin PA07
+  pa06_turn_mult = ADD_pa06_turn_mult.read();             // multiplo de vueltas para PA06
+  pa06_enable = ADD_pa06_enable.read();                   // habilitacion de PA06
+  pa06_logic = ADD_pa06_logic.read();                     // logica del pin PA06
+  pa06_pulse_duration = ADD_pa06_pulse_duration.read();   // guarda la duracion del pulso en PA06
+  color_bright = ADD_color_bright.read();                 // brillo de los neopixels
+  pixel_color = ADD_pixel_color.read();                   // color de los neopixels
+  pixel_effect = ADD_pixel_effect.read();                 // efecto de los neopixels
 }
 
 // Funcion que configura las entradas y salidas
 void config_io() {
   // configura entrada o salida
-  //pinMode(DIR_, OUTPUT);   // Configura el pin para el cambio de sentido
-  pinMode(PA27, OUTPUT);  // pin27 de rango de angulo como salida
-  pinMode(PA22, OUTPUT);  // pin22 de rango de angulo como salida
-  pinMode(PA19, OUTPUT);  // pin19 de rango de angulo como salida
-  pinMode(PA18, OUTPUT);  // pin18 de rango de angulo como salida
-  pinMode(PA14, OUTPUT);  // pin pulso por revolucion CW como salida
-  pinMode(PA09, OUTPUT);  // pin pulso por revolucion CCW como salida
+  pinMode(DIR_, OUTPUT);  // Configura el pin para el cambio de sentido
+  pinMode(PA27, OUTPUT);    // pin27 de rango de angulo como salida
+  pinMode(PA22, OUTPUT);    // pin22 de rango de angulo como salida
+  pinMode(PA19, OUTPUT);    // pin19 de rango de angulo como salida
+  pinMode(PA18, OUTPUT);    // pin18 de rango de angulo como salida
+  pinMode(PA14, OUTPUT);    // pin pulso por revolucion CW como salida
+  pinMode(PA09, OUTPUT);    // pin pulso por revolucion CCW como salida
+  pinMode(PA07, OUTPUT);    // pin07 rango de vueltas como salida
+  pinMode(PA06, OUTPUT);    // pin06 multiplo de vueltas como salida
 
   // determina estado inicial de salidas
   digitalWrite(PA14, LOW);
   digitalWrite(PA09, LOW);
-  //digitalWrite(DIR_, flag_direction);
+  digitalWrite(PA06, LOW);
+  digitalWrite(DIR_, flag_direction);
 }
 
 // Funcion que configura el PWM del PIN PA05
@@ -232,25 +279,20 @@ void ack(String var_name, int variable) {
   switch(ack_level) {
     case NO_ACK:
       break;
-    case OK_ACK:
-      if(flag_serialIncoming == SERIAL0) Serial.println("ok");
+    case MIN_ACK:
+      if(input_channel == USB) Serial.println("ok");
       else Serial1.println("ok");
       delay(ackDelay);
       break;
     case FULL_ACK:
-      if(flag_serialIncoming == SERIAL0) Serial.print(var_name + ": ");
-      else Serial1.print(var_name + ": ");
-      if(variable == 1) {
-        if(flag_serialIncoming == SERIAL0) Serial.println("ON");
-        else Serial1.println("ON");
+      if(input_channel == USB) {
+        Serial.print(var_name + ": ");
+        Serial.println(variable);
       }
-      else if(variable == 0) {
-        if(flag_serialIncoming == SERIAL0) Serial.println("OFF");
-        else Serial1.println("OFF");
-      }
-      else {
-        if(flag_serialIncoming == SERIAL0) Serial.println(variable);
-        else Serial1.println(variable);
+      else
+      {
+        Serial1.print(var_name + ": ");
+        Serial1.println(variable);
       }
       delay(ackDelay);
       break;
@@ -259,21 +301,19 @@ void ack(String var_name, int variable) {
 
 // Funcion que imprime la version del programa
 void printVersion() {
-  // SERIAL0
-  if(flag_serialIncoming == SERIAL0) {
+  if(input_channel == USB) {
     Serial.println(firmwareVersion + "ProyectilMx - Hazlo real");
-    Serial.println("Ingresa info\\n para instrucciones (\\n = salto de linea)");
+    Serial.println("Ingresa info; para instrucciones");
   }
   else {
     Serial1.println(firmwareVersion + "ProyectilMx - Hazlo real");
-    Serial1.println("Ingresa info\\n para instrucciones (\\n = salto de linea)");
+    Serial1.println("Ingresa info; para instrucciones");
   }
 }
 
 // Funcion que imprime las instrucciones de como usar los comandos de la placa
 void print_instructions() {
-  // IMPRESION POR SERIAL0
-  if(flag_serialIncoming == SERIAL0) {
+  if(input_channel == USB) {
     Serial.println("\n ---------------");
     Serial.println("| Instrucciones |");
     Serial.println(" ---------------");
@@ -288,22 +328,25 @@ void print_instructions() {
     Serial.println("get.registro");
     Serial.println("get.registro.subregistro");
     Serial.println("donde: \'registro\'    es la variable a leer.");
+    Serial.println("       \'.\'           es el caracter de separacion por defecto");
     Serial.println("       \'subregistro\' puede ser un subregistro de registro.");  
     Serial.println("--------------------------------------------------------------------------------------------------");
     Serial.println("Comandos SET para cambiar la configuracion:");
     Serial.println("set.registro");
-    Serial.println("set.registro.valor");
-    Serial.println("set.registro.subregistro.valor");
+    Serial.println("set.registro.____");
+    Serial.println("set.registro.subregistro.____");
     Serial.println("donde: \'registro\'    es la variable a configurar.");
+    Serial.println("       \'.\'           es el caracter de separacion por defecto");
     Serial.println("       \'subregistro\' puede ser un subregistro de registro.");
-    Serial.println("       \'valor\'       es el valor que se escribira en ese registro.");
-    Serial.println("                       y puede tomar valores positivos y negativos o tener pseudonimos.");
+    Serial.println("       \'.\'           es el caracter de separacion por defecto");
+    Serial.println("       \'____\'        es el valor que se escribira en ese registro.");
+    Serial.println("                     y puede tomar valores positivos y negativos o tener pseudonimos.");
     Serial.println("--------------------------------------------------------------------------------------------------");
     Serial.println("Ejemplo de comandos set:");
     Serial.println("set.angle.min.-180\\n -> configura el angulo minimo en -180");
     Serial.println("set.angle.max.180\\n  -> configura el angulo maximo en 180");
     Serial.println("set.turn.10\\n        -> reinicia el contador de vueltas a 10");
-    Serial.println("set.pa27.max.100\\n  -> configura el angulo maximo de PA27 en 100");
+    Serial.println("set.pa27.max.100\\n   -> configura el angulo maximo de PA27 en 100");
     Serial.println("--------------------------------------------------------------------------------------------------");  
     Serial.println("Lista de comandos get:");
     Serial.println("get.version     -> devuelve la version del firmware");
@@ -320,12 +363,15 @@ void print_instructions() {
     Serial.println("get.pa19.max    -> devuelve el valor del angulo maximo para la salida PA27.");
     Serial.println("get.pa18.min    -> devuelve el valor del angulo minimo para la salida PA27.");
     Serial.println("get.pa18.max    -> devuelve el valor del angulo maximo para la salida PA27.");
+    Serial.println("get.pa07.min    -> devuelve el valor del angulo minimo para el rango de vueltas de PA07.");
+    Serial.println("get.pa07.max    -> devuelve el valor del angulo maximo para el rango de vueltas de PA07.");
+    Serial.println("get.pa06.mult   -> devuelve el del multiplo de vueltas para PA06.");
     Serial.println("get.dir         -> devuelve la direccion de incremento al girar el dial (CW o CCW)");
     Serial.println("get.baud        -> devuelve la velocidad de comunicacion en baudios.");
     Serial.println("--------------------------------------------------------------------------------------------------");
     Serial.println("Lista de comandos set:");
     Serial.println("set.ack.none             -> Configura tipo de acknowledge a ninguno");
-    Serial.println("set.ack.ok               -> Configura tipo de acknowledge a ok");
+    Serial.println("set.ack.min              -> Configura tipo de acknowledge al minimo, correcto = OK, incorrecto = ERROR");
     Serial.println("set.ack.full             -> Configura tipo de acknowledge a detallado");
     Serial.println("set.ack.delay            -> Tiempo de espera despues del acknowledge");
     Serial.println("set.dir.cw               -> Direccion de incremento a favor de las manecillas");
@@ -337,48 +383,60 @@ void print_instructions() {
     Serial.println("set.update.change.turn   -> Impresion de numero de vuelta en cuanto cambia de valor");
     Serial.println("set.update.change.both   -> Impresion de ambas variables en cuanto camban de valor");
     Serial.println("set.update.call          -> Configura el modo de impresion bajo consulta");
-    Serial.println("set.angle.min.value      -> Configura el angulo minimo (value = -4095 - 4094)");
-    Serial.println("set.angle.max.value      -> Configura el angulo maximo (value = -4094 - 4095)");
-    Serial.println("set.turn.value           -> Configura el valor actual de vueltas (value = -2147483648 - 2147483647)");
-    Serial.println("set.turn.pulse.value     -> Configura la duracion del pulso por revolucion en PA14 y PA09 (value = 5uS - 100uS)");
-    Serial.println("set.baud.value           -> configura la velocidad de comunicacion en baudios, value puede ser:");
+    Serial.println("set.angle.min.____       -> Configura el angulo minimo (rango: -2047 a 2048)");
+    Serial.println("set.angle.max.____       -> Configura el angulo maximo (rango: -2047 a 2048)");
+    Serial.println("set.turn.____            -> Configura el valor actual de vueltas (rango: -2147483648 a 2147483647)");
+    Serial.println("set.turn.pulse.____      -> Configura la duracion del pulso por revolucion en PA14 y PA09 (rango: 5 a 100 uS)");
+    Serial.println("set.baud.____            -> configura la velocidad de comunicacion en baudios, valores:");
     Serial.println("                            9600, 19200, 38400, 57600, 74880, 115200, 230400 ,250000 o 500000");
-    Serial.println("set.pa27.min.value       -> configura el angulo minimo para la salida PA27 (value = minAngle - maxAngle)");
-    Serial.println("set.pa27.max.value       -> configura el angulo maximo para la salida PA27 (value = minAngle - maxAngle)");
+    Serial.println("set.pa27.min.____        -> configura el angulo minimo para la salida PA27 (rango: minAngle a maxAngle)");
+    Serial.println("set.pa27.max.____        -> configura el angulo maximo para la salida PA27 (rango: minAngle - maxAngle)");
     Serial.println("set.pa27.high            -> configura en alto la zona de accion de PA27 entre dos angulos");
     Serial.println("set.pa27.low             -> configura en bajo la zona de accion de PA27 entre dos angulos");
     Serial.println("set.pa27.enable          -> habilita el PA27 para su uso acotado entre 2 angulos");
     Serial.println("set.pa27.disable         -> deshabilita el PA27 para su uso acotado entre 2 angulos");
-    Serial.println("set.pa22.min.value       -> configura el angulo minimo para la salida PA22 (value = minAngle - maxAngle)");
-    Serial.println("set.pa22.max.value       -> configura el angulo maximo para la salida PA22 (value = minAngle - maxAngle)");
+    Serial.println("set.pa22.min.____        -> configura el angulo minimo para la salida PA22 (rango: minAngle a maxAngle)");
+    Serial.println("set.pa22.max.____        -> configura el angulo maximo para la salida PA22 (rango: minAngle a maxAngle)");
     Serial.println("set.pa22.high            -> configura en alto la zona de accion de PA22 entre dos angulos");
     Serial.println("set.pa22.low             -> configura en bajo la zona de accion de PA22 entre dos angulos");
     Serial.println("set.pa22.enable          -> habilita el PA22 para su uso acotado entre 2 angulos");
     Serial.println("set.pa22.disable         -> deshabilita el PA22 para su uso acotado entre 2 angulos");
-    Serial.println("set.pa19.min.value       -> configura el angulo minimo para la salida PA19 (value = minAngle - maxAngle)");
-    Serial.println("set.pa19.max.value       -> configura el angulo maximo para la salida PA19 (value = minAngle - maxAngle)");
+    Serial.println("set.pa19.min.____        -> configura el angulo minimo para la salida PA19 (rango: minAngle a maxAngle)");
+    Serial.println("set.pa19.max.____        -> configura el angulo maximo para la salida PA19 (rango: minAngle a maxAngle)");
     Serial.println("set.pa19.high            -> configura en alto la zona de accion de PA19 entre dos angulos");
     Serial.println("set.pa19.low             -> configura en bajo la zona de accion de PA19 entre dos angulos");
     Serial.println("set.pa19.enable          -> habilita el PA19 para su uso acotado entre 2 angulos");
     Serial.println("set.pa19.disable         -> deshabilita el PA19 para su uso acotado entre 2 angulos");
-    Serial.println("set.pa18.min.value       -> configura el angulo minimo para la salida PA18 (value = minAngle - maxAngle)");
-    Serial.println("set.pa18.max.value       -> configura el angulo maximo para la salida PA18 (value = minAngle - maxAngle)");
+    Serial.println("set.pa18.min.____        -> configura el angulo minimo para la salida PA18 (rango: minAngle a maxAngle)");
+    Serial.println("set.pa18.max.____        -> configura el angulo maximo para la salida PA18 (rango: minAngle a maxAngle)");
     Serial.println("set.pa18.high            -> configura en alto la zona de accion de PA18 entre dos angulos");
     Serial.println("set.pa18.low             -> configura en bajo la zona de accion de PA18 entre dos angulos");
     Serial.println("set.pa18.enable          -> habilita el PA18 para su uso acotado entre 2 angulos");
     Serial.println("set.pa18.disable         -> deshabilita el PA18 para su uso acotado entre 2 angulos");
-    Serial.println("set.pixel.bright.value   -> Configura el brillo de los neopixels (value = 0 - 255)");
+    Serial.println("set.pa07.min.____        -> configura las vueltas minimas para la salida PA07 (rango: minTurn a maxTurn)");
+    Serial.println("set.pa07.max.____        -> configura el angulo maximo para la salida PA07 (rango: minTurn a maxTurn)");
+    Serial.println("set.pa07.high            -> configura en alto la zona de accion de PA07 dentro del rango de vueltas");
+    Serial.println("set.pa07.low             -> configura en bajo la zona de accion de PA07 dentro del rango de vueltas");
+    Serial.println("set.pa07.enable          -> habilita el PA07 para su uso acotado en numero de vueltas");
+    Serial.println("set.pa07.disable         -> deshabilita el PA07 para su uso acotado en numero de vueltas");
+    Serial.println("set.pa06.mult.____       -> configura el multiplo de vueltas para la salida PA07 (rango: minTurn a maxTurn)");
+    Serial.println("set.pa06.high            -> configura en alto el pulso de PA06 durante el tiempo programable");
+    Serial.println("set.pa06.low             -> configura en bajo el pulso de PA06 durante el tiempo programable");
+    Serial.println("set.pa06.enable          -> habilita el PA06 para su uso como pulso en multiplos de vueltas");
+    Serial.println("set.pa06.disable         -> deshabilita el PA06 para su uso como pulso en multiplos de vueltas");
+    Serial.println("set.pa06.time            -> configura la duracion del pulso en PA06 en microsegundos rango: 5 a 100 uS");
+    Serial.println("set.pixel.bright.____    -> Configura el brillo de los neopixels (rango: 0 a 255)");
     Serial.println("set.pixel.effect.single  -> Configura el efecto de los neopixels a un pixel a la vez");
     Serial.println("set.pixel.effect.rise    -> Los neopixels se iran encendiendo");
     Serial.println("set.pixel.effect.fall    -> Los neopixels se iran apagando");
     Serial.println("set.pixel.enable         -> Habilita los neopixels");
     Serial.println("set.pixel.disable        -> Desahibita los neopixels");
-    Serial.println("set.pixel.color.value    -> Cambia el color de los neopixels, value puede ser:");
+    Serial.println("set.pixel.color.____     -> Cambia el color de los neopixels, valores:");
     Serial.println("                            red, green, blue, yellow, magenta, cyan, white");
     Serial.println("--------------------------------------------------------------------------------------------------");
     Serial.println("Lista de comandos save:");
     Serial.println("save.baud                -> Guarda el valor de la velocidad de la comunicacion Serial");
-    Serial.println("                            cuando se ocupa set.baud.value, solamente se actualiza baud.");
+    Serial.println("                            cuando se ocupa set.baud.____, solamente se actualiza baud.");
     Serial.println("                            Al utilizar save, la siguiente vez que se energice, permanecera");
     Serial.println("save.turn                -> Guarda el valor del numero de vueltas\n");
     Serial.println("Comandos directos:");
@@ -387,7 +445,6 @@ void print_instructions() {
     Serial.println("reset                    -> Regresa la configuracion al estado de fabrica " );
   }
   else {
-    // IMPRESION POR SERIAL1
     Serial1.println("\n ---------------");
     Serial1.println("| Instrucciones |");
     Serial1.println(" ---------------");
@@ -402,22 +459,25 @@ void print_instructions() {
     Serial1.println("get.registro");
     Serial1.println("get.registro.subregistro");
     Serial1.println("donde: \'registro\'    es la variable a leer.");
+    Serial1.println("       \'.\'           es el caracter de separacion por defecto");
     Serial1.println("       \'subregistro\' puede ser un subregistro de registro.");  
     Serial1.println("--------------------------------------------------------------------------------------------------");
     Serial1.println("Comandos SET para cambiar la configuracion:");
     Serial1.println("set.registro");
-    Serial1.println("set.registro.valor");
-    Serial1.println("set.registro.subregistro.valor");
+    Serial1.println("set.registro.____");
+    Serial1.println("set.registro.subregistro.____");
     Serial1.println("donde: \'registro\'    es la variable a configurar.");
+    Serial1.println("       \'.\'           es el caracter de separacion por defecto");
     Serial1.println("       \'subregistro\' puede ser un subregistro de registro.");
-    Serial1.println("       \'valor\'       es el valor que se escribira en ese registro.");
-    Serial1.println("                       y puede tomar valores positivos y negativos o tener pseudonimos.");
+    Serial1.println("       \'.\'           es el caracter de separacion por defecto");
+    Serial1.println("       \'____\'        es el valor que se escribira en ese registro.");
+    Serial1.println("                     y puede tomar valores positivos y negativos o tener pseudonimos.");
     Serial1.println("--------------------------------------------------------------------------------------------------");
     Serial1.println("Ejemplo de comandos set:");
     Serial1.println("set.angle.min.-180\\n -> configura el angulo minimo en -180");
     Serial1.println("set.angle.max.180\\n  -> configura el angulo maximo en 180");
     Serial1.println("set.turn.10\\n        -> reinicia el contador de vueltas a 10");
-    Serial1.println("set.pa27.max.100\\n  -> configura el angulo maximo de PA27 en 100");
+    Serial1.println("set.pa27.max.100\\n   -> configura el angulo maximo de PA27 en 100");
     Serial1.println("--------------------------------------------------------------------------------------------------");  
     Serial1.println("Lista de comandos get:");
     Serial1.println("get.version     -> devuelve la version del firmware");
@@ -434,12 +494,15 @@ void print_instructions() {
     Serial1.println("get.pa19.max    -> devuelve el valor del angulo maximo para la salida PA27.");
     Serial1.println("get.pa18.min    -> devuelve el valor del angulo minimo para la salida PA27.");
     Serial1.println("get.pa18.max    -> devuelve el valor del angulo maximo para la salida PA27.");
+    Serial1.println("get.pa07.min    -> devuelve el valor del angulo minimo para el rango de vueltas de PA07.");
+    Serial1.println("get.pa07.max    -> devuelve el valor del angulo maximo para el rango de vueltas de PA07.");
+    Serial1.println("get.pa06.mult   -> devuelve el del multiplo de vueltas para PA06.");
     Serial1.println("get.dir         -> devuelve la direccion de incremento al girar el dial (CW o CCW)");
     Serial1.println("get.baud        -> devuelve la velocidad de comunicacion en baudios.");
     Serial1.println("--------------------------------------------------------------------------------------------------");
     Serial1.println("Lista de comandos set:");
     Serial1.println("set.ack.none             -> Configura tipo de acknowledge a ninguno");
-    Serial1.println("set.ack.ok               -> Configura tipo de acknowledge a ok");
+    Serial1.println("set.ack.min              -> Configura tipo de acknowledge al minimo, correcto = OK, incorrecto = ERROR");
     Serial1.println("set.ack.full             -> Configura tipo de acknowledge a detallado");
     Serial1.println("set.ack.delay            -> Tiempo de espera despues del acknowledge");
     Serial1.println("set.dir.cw               -> Direccion de incremento a favor de las manecillas");
@@ -451,48 +514,60 @@ void print_instructions() {
     Serial1.println("set.update.change.turn   -> Impresion de numero de vuelta en cuanto cambia de valor");
     Serial1.println("set.update.change.both   -> Impresion de ambas variables en cuanto camban de valor");
     Serial1.println("set.update.call          -> Configura el modo de impresion bajo consulta");
-    Serial1.println("set.angle.min.value      -> Configura el angulo minimo (value = -4095 - 4094)");
-    Serial1.println("set.angle.max.value      -> Configura el angulo maximo (value = -4094 - 4095)");
-    Serial1.println("set.turn.value           -> Configura el valor actual de vueltas (value = -2147483648 - 2147483647)");
-    Serial1.println("set.turn.pulse.value     -> Configura la duracion del pulso por revolucion en PA14 y PA09 (value = 5uS - 100uS)");
-    Serial1.println("set.baud.value           -> configura la velocidad de comunicacion en baudios, value puede ser:");
+    Serial1.println("set.angle.min.____       -> Configura el angulo minimo (rango: -2047 a 2048)");
+    Serial1.println("set.angle.max.____       -> Configura el angulo maximo (rango: -2047 a 2048)");
+    Serial1.println("set.turn.____            -> Configura el valor actual de vueltas (rango: -2147483648 a 2147483647)");
+    Serial1.println("set.turn.pulse.____      -> Configura la duracion del pulso por revolucion en PA14 y PA09 (rango: 5 a 100 uS)");
+    Serial1.println("set.baud.____            -> configura la velocidad de comunicacion en baudios, valores:");
     Serial1.println("                            9600, 19200, 38400, 57600, 74880, 115200, 230400 ,250000 o 500000");
-    Serial1.println("set.pa27.min.value       -> configura el angulo minimo para la salida PA27 (value = minAngle - maxAngle)");
-    Serial1.println("set.pa27.max.value       -> configura el angulo maximo para la salida PA27 (value = minAngle - maxAngle)");
+    Serial1.println("set.pa27.min.____        -> configura el angulo minimo para la salida PA27 (rango: minAngle a maxAngle)");
+    Serial1.println("set.pa27.max.____        -> configura el angulo maximo para la salida PA27 (rango: minAngle - maxAngle)");
     Serial1.println("set.pa27.high            -> configura en alto la zona de accion de PA27 entre dos angulos");
     Serial1.println("set.pa27.low             -> configura en bajo la zona de accion de PA27 entre dos angulos");
     Serial1.println("set.pa27.enable          -> habilita el PA27 para su uso acotado entre 2 angulos");
     Serial1.println("set.pa27.disable         -> deshabilita el PA27 para su uso acotado entre 2 angulos");
-    Serial1.println("set.pa22.min.value       -> configura el angulo minimo para la salida PA22 (value = minAngle - maxAngle)");
-    Serial1.println("set.pa22.max.value       -> configura el angulo maximo para la salida PA22 (value = minAngle - maxAngle)");
+    Serial1.println("set.pa22.min.____        -> configura el angulo minimo para la salida PA22 (rango: minAngle a maxAngle)");
+    Serial1.println("set.pa22.max.____        -> configura el angulo maximo para la salida PA22 (rango: minAngle a maxAngle)");
     Serial1.println("set.pa22.high            -> configura en alto la zona de accion de PA22 entre dos angulos");
     Serial1.println("set.pa22.low             -> configura en bajo la zona de accion de PA22 entre dos angulos");
     Serial1.println("set.pa22.enable          -> habilita el PA22 para su uso acotado entre 2 angulos");
     Serial1.println("set.pa22.disable         -> deshabilita el PA22 para su uso acotado entre 2 angulos");
-    Serial1.println("set.pa19.min.value       -> configura el angulo minimo para la salida PA19 (value = minAngle - maxAngle)");
-    Serial1.println("set.pa19.max.value       -> configura el angulo maximo para la salida PA19 (value = minAngle - maxAngle)");
+    Serial1.println("set.pa19.min.____        -> configura el angulo minimo para la salida PA19 (rango: minAngle a maxAngle)");
+    Serial1.println("set.pa19.max.____        -> configura el angulo maximo para la salida PA19 (rango: minAngle a maxAngle)");
     Serial1.println("set.pa19.high            -> configura en alto la zona de accion de PA19 entre dos angulos");
     Serial1.println("set.pa19.low             -> configura en bajo la zona de accion de PA19 entre dos angulos");
     Serial1.println("set.pa19.enable          -> habilita el PA19 para su uso acotado entre 2 angulos");
     Serial1.println("set.pa19.disable         -> deshabilita el PA19 para su uso acotado entre 2 angulos");
-    Serial1.println("set.pa18.min.value       -> configura el angulo minimo para la salida PA18 (value = minAngle - maxAngle)");
-    Serial1.println("set.pa18.max.value       -> configura el angulo maximo para la salida PA18 (value = minAngle - maxAngle)");
+    Serial1.println("set.pa18.min.____        -> configura el angulo minimo para la salida PA18 (rango: minAngle a maxAngle)");
+    Serial1.println("set.pa18.max.____        -> configura el angulo maximo para la salida PA18 (rango: minAngle a maxAngle)");
     Serial1.println("set.pa18.high            -> configura en alto la zona de accion de PA18 entre dos angulos");
     Serial1.println("set.pa18.low             -> configura en bajo la zona de accion de PA18 entre dos angulos");
     Serial1.println("set.pa18.enable          -> habilita el PA18 para su uso acotado entre 2 angulos");
     Serial1.println("set.pa18.disable         -> deshabilita el PA18 para su uso acotado entre 2 angulos");
-    Serial1.println("set.pixel.bright.value   -> Configura el brillo de los neopixels (value = 0 - 255)");
+    Serial1.println("set.pa07.min.____        -> configura las vueltas minimas para la salida PA07 (rango: minTurn a maxTurn)");
+    Serial1.println("set.pa07.max.____        -> configura el angulo maximo para la salida PA07 (rango: minTurn a maxTurn)");
+    Serial1.println("set.pa07.high            -> configura en alto la zona de accion de PA07 dentro del rango de vueltas");
+    Serial1.println("set.pa07.low             -> configura en bajo la zona de accion de PA07 dentro del rango de vueltas");
+    Serial1.println("set.pa07.enable          -> habilita el PA07 para su uso acotado en numero de vueltas");
+    Serial1.println("set.pa07.disable         -> deshabilita el PA07 para su uso acotado en numero de vueltas");
+    Serial1.println("set.pa06.mult.____       -> configura el multiplo de vueltas para la salida PA07 (rango: minTurn a maxTurn)");
+    Serial1.println("set.pa06.high            -> configura en alto el pulso de PA06 durante el tiempo programable");
+    Serial1.println("set.pa06.low             -> configura en bajo el pulso de PA06 durante el tiempo programable");
+    Serial1.println("set.pa06.enable          -> habilita el PA06 para su uso como pulso en multiplos de vueltas");
+    Serial1.println("set.pa06.disable         -> deshabilita el PA06 para su uso como pulso en multiplos de vueltas");
+    Serial1.println("set.pa06.time            -> configura la duracion del pulso en PA06 en microsegundos rango: 5 a 100 uS");
+    Serial1.println("set.pixel.bright.____    -> Configura el brillo de los neopixels (rango: 0 a 255)");
     Serial1.println("set.pixel.effect.single  -> Configura el efecto de los neopixels a un pixel a la vez");
     Serial1.println("set.pixel.effect.rise    -> Los neopixels se iran encendiendo");
     Serial1.println("set.pixel.effect.fall    -> Los neopixels se iran apagando");
     Serial1.println("set.pixel.enable         -> Habilita los neopixels");
     Serial1.println("set.pixel.disable        -> Desahibita los neopixels");
-    Serial1.println("set.pixel.color.value    -> Cambia el color de los neopixels, value puede ser:");
+    Serial1.println("set.pixel.color.____     -> Cambia el color de los neopixels, valores:");
     Serial1.println("                            red, green, blue, yellow, magenta, cyan, white");
     Serial1.println("--------------------------------------------------------------------------------------------------");
     Serial1.println("Lista de comandos save:");
     Serial1.println("save.baud                -> Guarda el valor de la velocidad de la comunicacion Serial");
-    Serial1.println("                            cuando se ocupa set.baud.value, solamente se actualiza baud.");
+    Serial1.println("                            cuando se ocupa set.baud.____, solamente se actualiza baud.");
     Serial1.println("                            Al utilizar save, la siguiente vez que se energice, permanecera");
     Serial1.println("save.turn                -> Guarda el valor del numero de vueltas\n");
     Serial1.println("Comandos directos:");
@@ -504,43 +579,42 @@ void print_instructions() {
 
 // Funcion que determina el comando que se recibe por serial
 void getCommand() {
-  // RECEPCION POR SERIAL0
   if (Serial.available())  {
-    flag_serialIncoming = SERIAL0;
     char c = Serial.read();
-    if (c == '\n') {
+    if (c == ';') {
       readString.toLowerCase();
       int counter = 0;
-      for(int i=0; i<5; i++) subCom[i] = ""; 
+      for(int i=0; i<6; i++) subCom[i] = ""; 
       for(int i=0; i<readString.length(); i++) {
-        if(readString.charAt(i) == '.') {
+        if(readString.charAt(i) == ',') {
           counter++;
         }
         else subCom[counter] += readString.charAt(i);
       }
       flag_newCommand = true;
+      input_channel = USB;
       readString = ""; //clears variable for new input
     }  
     else {     
       readString += c; //makes the string readString
     }
   }
-  
-  // RECEPCION POR SERIAL1
+
   if (Serial1.available())  {
-    flag_serialIncoming = SERIAL1;
     char c = Serial1.read();
-    if (c == '\n') {
+    if (c == ';') {
       readString.toLowerCase();
       int counter = 0;
-      for(int i=0; i<5; i++) subCom[i] = ""; 
+      for(int i=0; i<6; i++) subCom[i] = ""; 
       for(int i=0; i<readString.length(); i++) {
-        if(readString.charAt(i) == '.') {
+        if(readString.charAt(i) == ',') {
           counter++;
         }
         else subCom[counter] += readString.charAt(i);
       }
       flag_newCommand = true;
+      input_channel = SERIAL;
+      Serial1.println(String(subCom[0]) + "," + String(subCom[1]) + "," + String(subCom[2]) + "," + String(subCom[3]) + ",");
       readString = ""; //clears variable for new input
     }  
     else {     
@@ -558,42 +632,52 @@ void checkErrors(int commandNumber) {
 // Funcion que determina el tipo de error que hubo
 void errorManage() {
   if(flag_error_syntax == true) {  // si hubo un error de sintaxis en el comando
-    flag_error_syntax = false;     // desactiva bandera de error
-    if(flag_serialIncoming == SERIAL0) Serial.println("syntaxErr");  // imprime err
-    else Serial1.println("syntaxErr");  // imprime err
-    delay(ackDelay);
+    if(ack_level == FULL_ACK){
+      if(input_channel == USB) Serial.println("syntaxErr");  // imprime err
+      else Serial1.println("syntaxErr");  // imprime err
+      delay(ackDelay);
+    }
+    else if(ack_level == MIN_ACK) {
+      if(input_channel == USB) Serial.println("error");
+      else Serial1.println("error");
+    }
   }
 
-  if(flag_error_range == true) {  // si hubo con error de rango en un valor
-    flag_error_range = false;     // desactiva bandera de outRange
-    if(flag_serialIncoming == SERIAL0) Serial.println("outRange");   // imprime outRange
+  if(flag_error_range == true && ack_level == FULL_ACK) {  // si hubo con error de rango en un valor
+    if(input_channel == USB) Serial.println("outRange");   // imprime outRange
     else Serial1.println("outRange");   // imprime outRange
     delay(ackDelay);
   }
 
-  if(flag_error_void == true) {
-    flag_error_void = false;
-    if(flag_serialIncoming == SERIAL0) Serial.println("noValue");
-    else Serial.println("noValue");
+  if(flag_error_void == true && ack_level == FULL_ACK) {
+    if(input_channel == USB) Serial.println("noValue");
+    else Serial1.println("noValue");
     delay(ackDelay);
   }
+
+  flag_error_range = false;     // desactiva bandera de outRange
+  flag_error_void = false;      // desactiva bandera de vacio
+  flag_error_syntax = false;     // desactiva bandera de error
 }
 
 // Funcion que ejecuta los comandos recibidos por serial
 void changeManage() {
-  raw_angle = ams.getRawAngle();  // captura del angulo absoluto
-  angle = map(raw_angle, 0, 4095, min_angle, max_angle);  // mapeo del angulo a maximo y minimo
-  new_angle = angle;  // guarda un nuevo angulo
-  new_turn = turn;    // guarda un nuevo numero de vueltas
-
+  raw_angle = ams.getRawAngle();  // captura del angulo absoluto del sensor AS5600
+  user_angle = raw_angle;
   TCC0->CC[1].reg = map(raw_angle,0,4095,0,75);   // actualiza el valor del angulo absoluto para el PWM
 
-  // Determinacion del numero de vueltas hacia ambos sentidos
-  if(new_angle < (max_angle-min_angle)/3 && old_angle > ((max_angle-min_angle)/3)*2)  {
+  // ----------------------------------------------------------------------------------------
+  // Inicia determinacion del numero de vueltas hacia ambos sentidos
+  // ----------------------------------------------------------------------------------------
+  new_angle = angle;  // guarda un nuevo angulo
+  raw_new_angle = raw_angle;    // guarda un nuevo angulo absoluto del sensor AS5600
+  angle = map(raw_angle, 0, 4095, min_angle, max_angle);  // mapeo del angulo a maximo y minimo
+    
+  if(raw_new_angle < ONE_THIRD_FULL_ANGLE && raw_old_angle > TWO_THIRD_FULL_ANGLE)  {
     if(turn < 2147483647) turn++;
     flag_newTurn = true;
   }
-  else if(old_angle < (max_angle-min_angle)/3 && new_angle > ((max_angle-min_angle)/3)*2) {
+  else if(raw_old_angle < ONE_THIRD_FULL_ANGLE && raw_new_angle > TWO_THIRD_FULL_ANGLE) {
     if(turn > -2147483648) turn--;
     flag_newTurn = true;
   }
@@ -603,9 +687,36 @@ void changeManage() {
     flag_angleChanged = true;
   }
 
-  // Bandera de cambio de vuelta
+  old_angle = new_angle;
+  raw_old_angle = raw_new_angle;
+  // ----------------------------------------------------------------------------------------
+  // Termina determinacion del numero de vueltas hacia ambos sentidos
+  // ----------------------------------------------------------------------------------------
+  // ---------------------------------------------------
+  // Inicia cambio de vuelta
+  // ---------------------------------------------------
+  new_turn = turn;    // guarda un nuevo numero de vueltas
+  user_turn = turn;
+  
   if(new_turn != old_turn) {
     flag_turnChanged = true;
+  }
+
+  if(pa27_enable == HIGH) {
+    if(angle >= pa27_min_angle && angle <= pa27_max_angle) digitalWrite(PA27, flag_pa27_level);
+    else digitalWrite(PA27, !flag_pa27_level);
+  }  
+  if(pa22_enable == HIGH) {
+    if(angle >= pa22_min_angle && angle <= pa22_max_angle) digitalWrite(PA22, flag_pa22_level);
+    else digitalWrite(PA22, !flag_pa22_level);
+  }
+  if(pa19_enable == HIGH) {
+    if(angle >= pa19_min_angle && angle <= pa19_max_angle) digitalWrite(PA19, flag_pa19_level);
+    else digitalWrite(PA19, !flag_pa19_level);
+  }
+  if(pa18_enable == HIGH) {
+    if(angle >= pa18_min_angle && angle <= pa18_max_angle) digitalWrite(PA18, flag_pa18_level);
+    else digitalWrite(PA18, !flag_pa18_level);
   }
 
   // Bandera de generacion de pulso en CW y CCW
@@ -620,9 +731,38 @@ void changeManage() {
     digitalWrite(PA09, LOW);
   }
 
+  // Bandera para PA07, se activa dentro de un rango de vueltas
+  if(pa07_enable == true) {
+    if(new_turn >= pa07_min_turn && new_turn <= pa07_max_turn) {
+      if(pa07_logic == HIGH) digitalWrite(PA07, HIGH);
+      else digitalWrite(PA07, HIGH);
+    }
+    else if(pa07_logic == HIGH) digitalWrite(PA07, LOW);
+    else  digitalWrite(PA07, HIGH);
+  }
+  else digitalWrite(PA07, LOW);
+
+  
+  // Bandera para PA06, se activa cuando el numero de vueltas es multiplo de pa06_turn_mult
+  if(pa06_enable == true) {
+    if(new_turn != old_turn) {
+      long modulus = abs(new_turn) % pa06_turn_mult;
+      if(modulus == 0) {
+        if(flag_pa06_level == true) digitalWrite(PA06, HIGH);
+        else digitalWrite(PA06, LOW);
+      } else {
+        if(flag_pa06_level == true) digitalWrite(PA06, LOW);
+        else digitalWrite(PA06, HIGH);
+      }
+    }
+  }
+  else digitalWrite(PA06, LOW);
+  
   // Guarda angulo y vuelta para otra comparacion
-  old_angle = new_angle;
   old_turn = new_turn;
+  // ---------------------------------------------------
+  // Termina cambio de vuelta
+  // ---------------------------------------------------
 
   // Manejo de Neopixels
   if(pixel_enable == true) {
@@ -731,19 +871,20 @@ void changeManage() {
   // Actualizacion de angulo, no. de vueltas o ambos, de forma constante (fluid)
   if(updateMode == FLUID) {
     if(flag_angleFluid == true && flag_turnFluid == false) {
-      if(flag_serialIncoming == SERIAL0) Serial.println(angle);
+      if(input_channel == USB) Serial.println(angle);
       else Serial1.println(angle);
     }
-    if(flag_angleFluid == false && flag_turnFluid == true) Serial.println(long(turn));
+    if(flag_angleFluid == false && flag_turnFluid == true) {
+      if(input_channel == USB) Serial.println(long(turn));
+      else  Serial.println(long(turn));
+    }
     if(flag_angleFluid == true && flag_turnFluid == true) {
-      if(flag_serialIncoming == SERIAL0) {
+      if(input_channel == USB) {
         Serial.print("a");
         Serial.print(angle);
         Serial.print(",t");
         Serial.println(long(turn));
-      }
-      else {
-        // SERIAL1
+      } else {
         Serial1.print("a");
         Serial1.print(angle);
         Serial1.print(",t");
@@ -755,129 +896,125 @@ void changeManage() {
   else if(updateMode == CHANGE) {
     if(flag_angleFluid == true && flag_turnFluid == false && flag_angleChanged == true) {
       flag_angleChanged = false;
-      if(flag_serialIncoming == SERIAL0) Serial.println(angle);
-      else Serial1.println(angle);
+      if(input_channel == USB) Serial.println(angle);
+      else  Serial1.println(angle);
     }
     if(flag_angleFluid == false && flag_turnFluid == true && flag_turnChanged == true) {
       flag_turnChanged = false;
-      if(flag_serialIncoming == SERIAL0) Serial.println(long(turn));
+      if(input_channel == USB) Serial.println(long(turn));
       else Serial1.println(long(turn));
     }
     if(flag_angleFluid == true && flag_turnFluid == true) {
       if(flag_angleChanged == true) {
         flag_angleChanged = false;
-        if(flag_serialIncoming == SERIAL0) {
+        if(input_channel == USB) {
           Serial.print("a");
           Serial.println(angle);
-        }
-        else {
+        } else {
           Serial1.print("a");
           Serial1.println(angle);
         }
       }
       if(flag_turnChanged == true) {
         flag_turnChanged = false;
-        if(flag_serialIncoming == SERIAL0) {
+        if(input_channel == USB) {
           Serial.print("t");
           Serial.println(long(turn));
-        }
-        else {
+        } else {
           Serial1.print("t");
           Serial1.println(long(turn));
         }
       }
     }
   }
-
-  if(pa27_enable == HIGH) {
-    if(angle >= pa27_min_angle && angle <= pa27_max_angle) digitalWrite(PA27, flag_pa27_level);
-    else digitalWrite(PA27, !flag_pa27_level);
-  }  
-  if(pa22_enable == HIGH) {
-    if(angle >= pa22_min_angle && angle <= pa22_max_angle) digitalWrite(PA22, flag_pa22_level);
-    else digitalWrite(PA22, !flag_pa22_level);
-  }
-  if(pa19_enable == HIGH) {
-    if(angle >= pa19_min_angle && angle <= pa19_max_angle) digitalWrite(PA19, flag_pa19_level);
-    else digitalWrite(PA19, !flag_pa19_level);
-  }
-  if(pa18_enable == HIGH) {
-    if(angle >= pa18_min_angle && angle <= pa18_max_angle) digitalWrite(PA18, flag_pa18_level);
-    else digitalWrite(PA18, !flag_pa18_level);
-  }
   
   // Actualizacion de angulo, no. de vueltas o ambos cada que el usuario lo solicita (call)
-  else if(updateMode == CALL) {
+  if(requestValue != NULL) {
     switch(requestValue) {
       case VERSION:       
-        if(flag_serialIncoming == SERIAL0) Serial.println(firmwareVersion);
-        else Serial1.println(firmwareVersion);
+        printVersion();                     
         break;
       case ANGLEMAX:      
-        if(flag_serialIncoming == SERIAL0) Serial.println(max_angle);
-        else Serial1.println(max_angle);
+        if(input_channel == USB) Serial.println(max_angle);          
+        else Serial1.println(max_angle);  
         break;
       case ANGLEMIN:      
-        if(flag_serialIncoming == SERIAL0) Serial.println(min_angle);
-        else Serial1.println(min_angle);         
+        if(input_channel == USB) Serial.println(min_angle);
+        else Serial1.println(min_angle);
         break;
       case ANGLEFULL:     
-        if(flag_serialIncoming == SERIAL0) Serial.println(full_angle);
-        else Serial1.println(full_angle);         
+        if(input_channel == USB) Serial.println(full_angle);
+        else Serial1.println(full_angle);      
         break;  
       case ANGLE:         
-        if(flag_serialIncoming == SERIAL0) Serial.println(angle);
-        else Serial1.println(angle);         
+        if(input_channel == USB) Serial.println(angle);
+        else Serial1.println(angle);       
         break;
       case DIRECTION:       
-        if(flag_serialIncoming == SERIAL0) Serial.println("CW");
-        else Serial1.println("CCW");
+        if(flag_direction == 0) {
+          if(input_channel == USB) Serial.println("CW");
+          else Serial1.println("CW");
+        }
+        else {
+          if(input_channel == USB) Serial.println("CCW");
+          else Serial1.println("CCW");
+        }
         break;
       case TURN:          
-        if(flag_serialIncoming == SERIAL0) Serial.println(long(turn));         
+        if(input_channel == USB) Serial.println(long(turn)); 
         else Serial1.println(long(turn));         
         break;
       case PA27MIN_ANGLE: 
-        if(flag_serialIncoming == SERIAL0) Serial.println(pa27_min_angle);     
-        else Serial1.println(pa27_min_angle);     
+        if(input_channel == USB) Serial.println(pa27_min_angle);
+        else Serial1.println(pa27_min_angle);
         break;
       case PA27MAX_ANGLE: 
-        if(flag_serialIncoming == SERIAL0) Serial.println(pa27_max_angle);     
+        if(input_channel == USB) Serial.println(pa27_max_angle); 
         else Serial1.println(pa27_max_angle);     
         break;
       case PA22MIN_ANGLE: 
-        if(flag_serialIncoming == SERIAL0) Serial.println(pa27_min_angle);      
-        else Serial1.println(pa27_min_angle);      
+        if(input_channel == USB) Serial.println(pa22_min_angle);
+        else Serial1.println(pa22_min_angle);    
         break;
       case PA22MAX_ANGLE: 
-        if(flag_serialIncoming == SERIAL0) Serial.println(pa27_max_angle);     
-        else Serial1.println(pa27_max_angle);     
+        if(input_channel == USB) Serial.println(pa22_max_angle);     
+        else Serial1.println(pa22_max_angle); 
         break;
       case PA19MIN_ANGLE: 
-        if(flag_serialIncoming == SERIAL0) Serial.println(pa27_min_angle);     
-        else Serial1.println(pa27_min_angle);     
+        if(input_channel == USB) Serial.println(pa19_min_angle);
+        else Serial1.println(pa19_min_angle);   
         break;
       case PA19MAX_ANGLE: 
-        if(flag_serialIncoming == SERIAL0) Serial.println(pa27_max_angle);     
-        else Serial1.println(pa27_max_angle);     
+        if(input_channel == USB) Serial.println(pa19_max_angle);
+        else Serial1.println(pa19_max_angle);
         break;
-      case PA18MIN_ANGLE: 
-        if(flag_serialIncoming == SERIAL0) Serial.println(pa27_min_angle);     
-        else Serial1.println(pa27_min_angle);     
+      case PA18MIN_ANGLE:   
+        if(input_channel == USB) Serial.println(pa18_min_angle);     
+        else Serial1.println(pa18_min_angle);  
         break;
       case PA18MAX_ANGLE: 
-        if(flag_serialIncoming == SERIAL0) Serial.println(pa27_max_angle);     
-        else Serial1.println(pa27_max_angle);     
+        if(input_channel == USB) Serial.println(pa18_max_angle);
+        else Serial1.println(pa18_max_angle);      
+        break;
+      case PA07MIN_TURN:  
+        if(input_channel == USB) Serial.println(pa07_min_turn);
+        else Serial1.println(pa07_min_turn);
+        break;
+      case PA07MAX_TURN:  
+        if(input_channel == USB) Serial.println(pa07_max_turn);
+        else Serial1.println(pa07_max_turn);
+        break;
+      case PA06MULTIPLE:  
+        if(input_channel == USB) Serial.println(int(pa06_turn_mult));
+        else Serial1.println(int(pa06_turn_mult));
         break;
       case BAUD:          
-        if(flag_serialIncoming == SERIAL0) Serial.println(baud);               
-        else Serial1.println(baud);               
+        if(input_channel == USB) Serial.println(baud);               
+        else Serial1.println(baud); 
         break;
     }
     requestValue = NULL;
   }
-  
-  if(requestValue != NULL) updateMode = CALL; 
 }
 
 // Funcion que determina que comando se introdujo
@@ -914,7 +1051,15 @@ void commandManage() {
         if(subCom[2] == "min")      requestValue = PA18MIN_ANGLE;
         else if(subCom[2] == "max") requestValue = PA18MAX_ANGLE;
       }
-      else if(subCom[1] == "dir") requestValue = DIR_; 
+      else if(subCom[1] == "pa07") {
+        if(subCom[2] == "min")      requestValue = PA07MIN_TURN;
+        else if(subCom[2] == "max") requestValue = PA07MAX_TURN;
+      }
+
+      else if(subCom[1] == "pa06") {
+        if(subCom[2] == "mult")     requestValue = PA06MULTIPLE;
+      }
+      else if(subCom[1] == "dir")   requestValue = DIRECTION; 
       else if(subCom[1] == "baud")  requestValue = BAUD;
       else checkErrors(1);
     }
@@ -933,8 +1078,8 @@ void commandManage() {
         if(subCom[2] == "none") {
           ack_level = NO_ACK; 
           ADD_ack_level.write(ack_level);
-        } else if(subCom[2] == "ok") {
-          ack_level = OK_ACK;
+        } else if(subCom[2] == "min") {
+          ack_level = MIN_ACK;
           ADD_ack_level.write(ack_level);
           ack("ack", ack_level);
         } else if(subCom[2] == "full") {
@@ -967,14 +1112,14 @@ void commandManage() {
           flag_direction = CW;
           digitalWrite(DIR_, flag_direction);
           ADD_direction.write(flag_direction);
-          ack("directionCW", flag_direction);
+          ack("direction CW:", flag_direction);
         }
         // SET.DIR.CCW
         else if(subCom[2] == "ccw") {   // En contra de las agujas del reloj
           flag_direction = CCW;
           digitalWrite(DIR_, flag_direction);
           ADD_direction.write(flag_direction);
-          ack("directionCCW", flag_direction);
+          ack("direction CCW:", flag_direction);
         }
         else checkErrors(2);
       }
@@ -1079,26 +1224,26 @@ void commandManage() {
       else if(subCom[1] == "angle") {   // Actualiza las configuraciones referentes al angulo
         // SET.ANGLE.MIN
         if(subCom[2] == "min") {  // actualiza el angulo minimo
-          if(subCom[3].toInt() >= -4095 && subCom[3].toInt() < max_angle-1) { 
+          if(subCom[3].toInt() >= -2047 && subCom[3].toInt() <= max_angle) { 
             min_angle = subCom[3].toInt();
             full_angle = max_angle - min_angle;
             ADD_min_angle.write(min_angle);
             ack("minAngle", min_angle);
           }
-          else if(subCom[3] != NULL && (subCom[3].toInt() < -4095 || subCom[3].toInt() >= max_angle)) {
+          else if(subCom[3] != NULL && (subCom[3].toInt() < -2047 || subCom[3].toInt() >= max_angle)) {
             flag_error_range = true;
           }
           else checkErrors(3);
         }
         // SET.ANGLE.MAX
         else if(subCom[2] == "max") {   // actualiza el angulo maximo
-          if(subCom[3].toInt() <= 4095 && subCom[3].toInt() > min_angle+1) {
+          if(subCom[3].toInt() <= 2048 && subCom[3].toInt() >= min_angle) {
             max_angle = subCom[3].toInt();
             full_angle = max_angle - min_angle;
             ADD_max_angle.write(max_angle);            
             ack("maxAngle", max_angle);
           }
-          else if(subCom[3] != NULL && (subCom[3].toInt() > 4095 || subCom[3].toInt() <= min_angle)) {
+          else if(subCom[3] != NULL && (subCom[3].toInt() > 2048 || subCom[3].toInt() <= min_angle)) {
             flag_error_range = true;
           }
           else checkErrors(3);
@@ -1147,15 +1292,15 @@ void commandManage() {
            isDigit(subCom[2].charAt(2)) && isDigit(subCom[2].charAt(3))) {
           baud = subCom[2].toInt();
           if(subCom[2] == "9600") {
-            if(flag_serialIncoming == SERIAL0) {
+            if(input_channel == USB) {
               Serial.println("9600 - OK");
               Serial.begin(baud);
             } else {
               Serial1.println("9600 - OK");
-              Serial1.begin(baud);         
+              Serial1.begin(baud);
             }
           } else if(subCom[2] == "19200") {
-            if(flag_serialIncoming == SERIAL0) {
+            if(input_channel == USB) {
               Serial.println("19200 - OK");
               Serial.begin(baud);
             } else {
@@ -1163,7 +1308,7 @@ void commandManage() {
               Serial1.begin(baud);
             }
           } else if(subCom[2] == "38400") {
-            if(flag_serialIncoming == SERIAL0) {
+            if(input_channel == USB) {
               Serial.println("38400 - OK");
               Serial.begin(baud);
             } else {
@@ -1171,7 +1316,7 @@ void commandManage() {
               Serial1.begin(baud);
             }
           } else if(subCom[2] == "57600") {
-            if(flag_serialIncoming == SERIAL0) {
+            if(input_channel == USB) {
               Serial.println("57600 - OK");
               Serial.begin(baud);
             } else {
@@ -1179,7 +1324,7 @@ void commandManage() {
               Serial1.begin(baud);
             }
           } else if(subCom[2] == "74880") {
-            if(flag_serialIncoming == SERIAL0) {
+            if(input_channel == USB) {
               Serial.println("74880 - OK");
               Serial.begin(baud);
             } else {
@@ -1187,7 +1332,7 @@ void commandManage() {
               Serial1.begin(baud);
             }
           } else if(subCom[2] == "115200") {
-            if(flag_serialIncoming == SERIAL0) {
+            if(input_channel == USB) {
               Serial.println("115200 - OK");
               Serial.begin(baud);
             } else {
@@ -1195,7 +1340,7 @@ void commandManage() {
               Serial1.begin(baud);
             }
           } else if(subCom[2] == "230400") {
-            if(flag_serialIncoming == SERIAL0) {
+            if(input_channel == USB) {
               Serial.println("230400 - OK");
               Serial.begin(baud);
             } else {
@@ -1203,7 +1348,7 @@ void commandManage() {
               Serial1.begin(baud);
             }
           } else if(subCom[2] == "250000") {
-            if(flag_serialIncoming == SERIAL0) {
+            if(input_channel == USB) {
               Serial.println("250000 - OK");
               Serial.begin(baud);
             } else {
@@ -1211,7 +1356,7 @@ void commandManage() {
               Serial1.begin(baud);
             }
           } else if(subCom[2] == "500000") {
-            if(flag_serialIncoming == SERIAL0) {
+            if(input_channel == USB) {
               Serial.println("500000 - OK");
               Serial.begin(baud);
             } else {
@@ -1233,9 +1378,11 @@ void commandManage() {
       else if(subCom[1] == "pa27") {
         if(subCom[2] == "high") {
           flag_pa27_level = HIGH;
+          ADD_pa27_logic.write(flag_pa27_level);
           ack("PA27level", flag_pa27_level);
         } else if(subCom[2] == "low") {
           flag_pa27_level = LOW;
+          ADD_pa27_logic.write(flag_pa27_level);
           ack("PA27level", flag_pa27_level);
         }
         else if(subCom[2] == "min") {
@@ -1274,17 +1421,19 @@ void commandManage() {
       // -------------------------------------------------------------------------
       else if(subCom[1] == "pa22") {
         if(subCom[2] == "high") {
-          pa22_enable = HIGH;
-          ack("PA22level", pa22_enable);
+          flag_pa22_level = HIGH;
+          ADD_pa22_logic.write(flag_pa22_level);
+          ack("PA22level", flag_pa22_level);
         } else if(subCom[2] == "low") {
-          pa22_enable = LOW;
-          ack("PA22level", pa22_enable);
+          flag_pa22_level = LOW;
+          ADD_pa22_logic.write(flag_pa22_level);
+          ack("PA22level", flag_pa22_level);
         }
         else if(subCom[2] == "min") {
           if(subCom[3].toInt() >= min_angle) {
             pa22_min_angle = subCom[3].toInt();
             ADD_pa22_min_angle.write(pa22_min_angle);
-            ack("PA22minAngle", pa27_min_angle);
+            ack("PA22minAngle", pa22_min_angle);
           }
           else checkErrors(3);
         } 
@@ -1298,13 +1447,13 @@ void commandManage() {
         } 
         else if(subCom[2] == "enable") {
           pa22_enable = true;
-          ADD_pa22_enable.write(pa22_enable);
+          ADD_pa27_enable.write(pa22_enable);
           ack("PA22status", pa22_enable);
         } 
         else if(subCom[2] == "disable") {
           pa22_enable = false;
           ADD_pa22_enable.write(pa22_enable);
-          ack("PA22status", pa22_enable);
+          ack("PA227status", pa22_enable);
         }
         else checkErrors(2);
       }
@@ -1316,11 +1465,13 @@ void commandManage() {
       // -------------------------------------------------------------------------
       else if(subCom[1] == "pa19") {
         if(subCom[2] == "high") {
-          pa19_enable = HIGH;
-          ack("PA19level", pa19_enable);
+          flag_pa19_level = HIGH;
+          ADD_pa19_logic.write(flag_pa19_level);
+          ack("PA19level", flag_pa19_level);
         } else if(subCom[2] == "low") {
-          pa19_enable = LOW;
-          ack("PA19level", pa19_enable);
+          flag_pa19_level = LOW;
+          ADD_pa19_logic.write(flag_pa19_level);
+          ack("PA19level", flag_pa19_level);
         }
         else if(subCom[2] == "min") {
           if(subCom[3].toInt() >= min_angle) {
@@ -1358,11 +1509,13 @@ void commandManage() {
       // -------------------------------------------------------------------------
       else if(subCom[1] == "pa18") {
         if(subCom[2] == "high") {
-          pa18_enable = HIGH;
-          ack("PA18level", pa18_enable);
+          flag_pa18_level = HIGH;
+          ADD_pa18_logic.write(flag_pa18_level);
+          ack("PA18level", flag_pa18_level);
         } else if(subCom[2] == "low") {
-          pa18_enable = LOW;
-          ack("PA18level", pa18_enable);
+          flag_pa18_level = LOW;
+          ADD_pa18_logic.write(flag_pa18_level);
+          ack("PA18level", flag_pa18_level);
         }
         else if(subCom[2] == "min") {
           if(subCom[3].toInt() >= min_angle) {
@@ -1375,14 +1528,14 @@ void commandManage() {
         else if(subCom[2] == "max") {
           if(subCom[3].toInt() <= max_angle) {
             pa18_max_angle = subCom[3].toInt();
-            ADD_pa27_max_angle.write(pa18_max_angle);
+            ADD_pa18_max_angle.write(pa18_max_angle);
             ack("PA18maxAngle", pa18_max_angle);
           }
           else checkErrors(3);
         } 
         else if(subCom[2] == "enable") {
           pa18_enable = true;
-          ADD_pa18_enable.write(pa18_enable);
+          ADD_pa18_enable.write(pa27_enable);
           ack("PA18status", pa18_enable);
         } 
         else if(subCom[2] == "disable") {
@@ -1394,6 +1547,86 @@ void commandManage() {
       }
       // -------------------------------------------------------------------------
       // FINAL DE SALIDA PA18
+      // -------------------------------------------------------------------------
+      // -------------------------------------------------------------------------
+      // INICIO DE SALIDA PA07
+      // -------------------------------------------------------------------------
+      else if(subCom[1] == "pa07") {
+        if(subCom[2] == "high") {
+          flag_pa07_level = HIGH;
+          ADD_pa07_logic.write(flag_pa07_level);
+          ack("PA07level", flag_pa07_level);
+        } else if(subCom[2] == "low") {
+          flag_pa07_level = LOW;
+          ADD_pa07_logic.write(flag_pa07_level);
+          ack("PA07level", flag_pa07_level);
+        }
+        else if(subCom[2] == "min") {
+          if(subCom[3].toInt() >= min_turn) {
+            pa07_min_turn = subCom[3].toInt();
+            ADD_pa07_min_turn.write(pa07_min_turn);
+            ack("PA07minTurn", pa07_min_turn);
+          }
+          else checkErrors(3);
+        } 
+        else if(subCom[2] == "max") {
+          if(subCom[3].toInt() <= max_turn) {
+            pa07_max_turn = subCom[3].toInt();
+            ADD_pa07_max_turn.write(pa07_max_turn);
+            ack("PA18maxTurn", pa07_max_turn);
+          }
+          else checkErrors(3);
+        } 
+        else if(subCom[2] == "enable") {
+          pa07_enable = true;
+          ADD_pa07_enable.write(pa07_enable);
+          ack("PA07status", pa07_enable);
+        } 
+        else if(subCom[2] == "disable") {
+          pa07_enable = false;
+          ADD_pa07_enable.write(pa07_enable);
+          ack("PA07status", pa07_enable);
+        }
+        else checkErrors(2);
+      }
+      // -------------------------------------------------------------------------
+      // FINAL DE SALIDA PA07
+      // -------------------------------------------------------------------------
+      // -------------------------------------------------------------------------
+      // INICIO DE SALIDA PA06
+      // -------------------------------------------------------------------------
+      else if(subCom[1] == "pa06") {
+        if(subCom[2] == "high") {
+          flag_pa06_level = HIGH;
+          ADD_pa06_logic.write(flag_pa06_level);
+          ack("PA06level", flag_pa06_level);
+        } else if(subCom[2] == "low") {
+          flag_pa06_level = LOW;
+          ADD_pa06_logic.write(flag_pa06_level);
+          ack("PA06level", flag_pa06_level);
+        }
+        else if(subCom[2] == "mult") {
+          if(subCom[3].toInt() >= min_turn && subCom[3].toInt() <= max_turn) {
+            pa06_turn_mult = subCom[3].toInt();
+            ADD_pa06_turn_mult.write(pa06_turn_mult);
+            ack("PA06Multiple", pa07_min_turn);
+          }
+          else checkErrors(3);
+        } 
+        else if(subCom[2] == "enable") {
+          pa06_enable = true;
+          ADD_pa06_enable.write(pa06_enable);
+          ack("PA06status", pa06_enable);
+        } 
+        else if(subCom[2] == "disable") {
+          pa06_enable = false;
+          ADD_pa06_enable.write(pa06_enable);
+          ack("PA06status", pa06_enable);
+        }
+        else checkErrors(2);
+      }
+      // -------------------------------------------------------------------------
+      // FINAL DE SALIDA PA06
       // -------------------------------------------------------------------------
       // -------------------------------------------------------------------------
       // INICIO DE PIXEL - CONFIGURACION DE NEOPIXELS
@@ -1504,15 +1737,14 @@ void commandManage() {
     // COMANDO DIRECTO RESET
     else if(subCom[0] == "reset") {
       ack_level = FULL_ACK; 
-      ADD_ack_level.write(ack_level);
-      ackDelay = 1000;
+      ackDelay = 100;
       ADD_ackDelay.write(ackDelay);
       flag_direction = CW;
       digitalWrite(DIR_, flag_direction);
       ADD_direction.write(flag_direction);
       flag_angleFluid = true;
       flag_turnFluid = true;
-      updateMode = FLUID;
+      updateMode = CHANGE;
       ADD_flag_angleFluid.write(flag_angleFluid);
       ADD_flag_turnFluid.write(flag_turnFluid);
       ADD_updateMode.write(updateMode);
@@ -1525,10 +1757,11 @@ void commandManage() {
       ADD_turn_pulse_duration.write(turn_pulse_duration);
       turn = 0;
       ADD_turn.write(turn);
-      baud = 115200;
+      baud = 9600;
       ADD_baud.write(baud);
     
       flag_pa27_level = HIGH;
+      ADD_pa27_logic.write(flag_pa27_level);
       pa27_min_angle = 0;
       ADD_pa27_min_angle.write(pa27_min_angle);
       pa27_max_angle = 90;
@@ -1537,6 +1770,7 @@ void commandManage() {
       ADD_pa27_enable.write(pa27_enable);
     
       flag_pa22_level = HIGH;
+      ADD_pa22_logic.write(flag_pa22_level);
       pa22_min_angle = 90;
       ADD_pa22_min_angle.write(pa22_min_angle);
       pa22_max_angle = 180;
@@ -1545,6 +1779,7 @@ void commandManage() {
       ADD_pa22_enable.write(pa22_enable);
     
       flag_pa19_level = HIGH;
+      ADD_pa19_logic.write(flag_pa19_level);
       pa19_min_angle = 180;
       ADD_pa19_min_angle.write(pa19_min_angle);
       pa19_max_angle = 270;
@@ -1553,12 +1788,29 @@ void commandManage() {
       ADD_pa19_enable.write(pa19_enable);
     
       flag_pa18_level = HIGH;
+      ADD_pa18_logic.write(flag_pa18_level);
       pa18_min_angle = 270;
       ADD_pa18_min_angle.write(pa18_min_angle);
       pa18_max_angle = 360;
       ADD_pa18_max_angle.write(pa18_max_angle);
       pa18_enable = true;
       ADD_pa18_enable.write(pa18_enable);
+
+      flag_pa07_level = HIGH;
+      ADD_pa07_logic.write(flag_pa07_level);
+      pa07_min_turn = 0;
+      ADD_pa07_min_turn.write(pa07_min_turn);
+      pa07_max_turn = 10;
+      ADD_pa07_max_turn.write(pa07_max_turn);
+      pa07_enable = true;
+      ADD_pa07_enable.write(pa07_enable);
+    
+      flag_pa06_level = HIGH;
+      ADD_pa06_logic.write(flag_pa06_level);
+      pa06_turn_mult = 10;
+      ADD_pa06_turn_mult.write(pa06_turn_mult);
+      pa06_enable = true;
+      ADD_pa06_enable.write(pa06_enable);
     
       color_bright = 255;
       ADD_color_bright.write(color_bright);
@@ -1607,11 +1859,13 @@ void commandManage() {
 // Funcion de configuracion global de la placa
 void pmxas5600n12_configure() {
   load_values();            // Carga los valores guardados en Flash
-  config_io();              // Configura las entrasa/salidas
+  config_io();              // Configura las entradas/salidas
   Wire.begin();             // Inicializa la comunicacion I2C con el sensor 
   Wire.setClock(I2CSPEED);  // Configura la velocidad de I2C a fast mode 1mbit/s
   Serial.begin(baud);       // Inicializa comunicacion serial por USB
-  Serial1.begin(baud);       // Inicializa comunicacion serial por USB
+  Serial1.begin(baud);
+  delay(1500);
+  printVersion();           // Imprime la version del firmware
   configurePWM();           // Configura el pin, timer, frecuencia, periodo, del PWM en el pin PA05
   pixels.begin();           // Inicializa los 12 neopixels de la placa
   printVersion();           // Imprime la version de la placa
@@ -1619,7 +1873,7 @@ void pmxas5600n12_configure() {
 
 // Funcion que agrupa todas las funciones de control de la placa
 void pmxas5600n12_exe() {
-  getCommand();     // Revisa si hay un nuevo comando entrante por USB
+  getCommand();     // Revisa si hay un nuevo comando entrante por el serial configurado
   commandManage();  // Ejecuta los comandos
   changeManage();   // Gestiona los cambios que se hacen a traves de comandos
   errorManage();    // Revisa si hay errores e imprime de haberlos

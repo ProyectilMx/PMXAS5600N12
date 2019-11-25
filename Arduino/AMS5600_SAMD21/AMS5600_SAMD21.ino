@@ -38,9 +38,9 @@
  * de ese intervalo.
  * 
  * PA06:
- * Se puede configurar para que al llegar a un multiplo de vueltas, por ejemplo, 15,  se de 
- * un pulso de un tiempo configurable en HIGH, por lo tanto este pulso sucederia en 0, 15,
- * 30, 45, 60, 75.... vueltas.
+ * Se puede configurar para que al llegar a un multiplo de vueltas, por ejemplo, 15,
+ * cambie a un estado bajo o alto, por lo tanto este pulso sucederia durante la vuelta 
+ * 0, 15, 30, 45, 60, 75, etc.
  * 
  * PA05:
  * Genera una señal PWM con una frecuencia de 2.5KHz, con un ciclo de trabajo 
